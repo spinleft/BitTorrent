@@ -1,10 +1,9 @@
-#include <string>
 #include "torrent/torrent.hpp"
 
 int main()
 {
-    bittorrent::Torrent torrent;
-    char filename[] = "/Users/sychen/OneDrive - mail.ustc.edu.cn/项目/BitTorrent/test/files/test.torrent";
+    bittorrent::Metainfo torrent;
+    char filename[] = "test/files/5.Centimeters.Per.Second.2007.1080p.Bluray.AVC.LPCM.4.0-RY4N.torrent";
 
     torrent.readFile(filename);
     return 0;

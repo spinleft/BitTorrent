@@ -4,6 +4,7 @@
 #define BUFFER_SIZE 1024
 
 #include <vector>
+#include <map>
 #include <string>
 #include <iostream>
 #include <fstream>
@@ -19,11 +20,10 @@ public:
     type_t getType() { return type; }
     virtual bool empty() { return true; }
     virtual size_t size() { return 0; }
-    virtual std::string &getKey(int n) {}
-    virtual Bencoding_node *getValue(int n) { return 0; }
-    virtual std::vector<de_t *> &getDict() {}
+    virtual Bencoding_node *getValue(const std::string &) { return 0; }
+    virtual dict_t &getDict() {}
     virtual Bencoding_node *getEntry(int n) { return 0; }
-    virtual std::vector<Bencoding_node *> &getList() {}
+    virtual list_t &getList() {}
     virtual std::string &getString() {}
     virtual long getInt() { return 0; }
     virtual ~Bencoding_node() {};
@@ -31,34 +31,21 @@ public:
 private:
     type_t type;
 };
-class Dictionary_entry {
-public:
-    Dictionary_entry() : key(), value(0) {}
-    Dictionary_entry(std::string &key) : key(key), value(0) {}
-    Dictionary_entry(std::string &key, Bencoding_node *value) : key(key), value(value) {}
-    ~Dictionary_entry() {
-        if (value)
-            delete value;
-    }
-    std::string key;
-    class Bencoding_node *value;
-};
 class Bencoding_dictionary : public Bencoding_node {
 public:
     Bencoding_dictionary() : Bencoding_node(DICT) {}
     bool empty() { return dict.empty(); }
     size_t size() { return dict.size(); }
-    std::string &getKey(int n) { return dict[n]->key; }
-    Bencoding_node *getValue(int n) { return dict[n]->value; }
-    std::vector<de_t *> &getDict() { return dict; }
+    Bencoding_node *getValue(const std::string &key) { return dict[key]; }
+    dict_t &getDict() { return dict; }
     ~Bencoding_dictionary() {
-        for (int i = 0; i < dict.size(); ++i)
-            if (dict[i]->value)
-                delete dict[i]->value;
+        for (dict_t::const_iterator iter = dict.cbegin(); iter != dict.cend(); ++iter)
+            if (iter->second)
+                delete iter->second;
     }
 
 private:
-    std::vector<de_t *> dict;
+    dict_t dict;
 };
 class Bencoding_list : public Bencoding_node {
 public:
@@ -66,7 +53,7 @@ public:
     bool empty() { return list.empty(); }
     size_t size() { return list.size(); }
     Bencoding_node *getEntry(int n) { return list[n]; }
-    std::vector<Bencoding_node *> &getList() { return list; }
+    list_t &getList() { return list; }
     ~Bencoding_list() {
         for (int i = 0; i < list.size(); ++i)
             if (list[i])
@@ -74,7 +61,7 @@ public:
     }
 
 private:
-    std::vector<Bencoding_node *> list;
+    list_t list;
 };
 class Bencoding_string : public Bencoding_node {
 public:
@@ -143,77 +130,60 @@ Bdict *decode(const char *filename)
     return root;
 }
 
-de_t *readDictEntry(std:: ifstream &file, int &status)
-{
-    char flag;
-    de_t *entry;
-
-    status = 0;
-    if (!file.get(flag)) {
-        std::cout << "readDictEntry(): read file fail." << std::endl;
-        status = -1;
-        return 0;
-    }
-    if (readType(flag) == END)
-        return 0;
-    entry = new de_t();
-    // read key
-    if (readType(flag) == STR) {
-        if(readStr(file, entry->key) < 0) {
-            std::cout << "readDictEntry(): read key fail." << std::endl;
-            delete entry;
-            status = -1;
-            return 0;
-        }
-    }
-    else{
-        std::cout << "readDictEntry(): key must be string." << std::endl;
-        delete entry;
-        status = -1;
-        return 0;
-    }
-    // read value
-    if (!file.get(flag)) {
-        std::cout << "readDictEntry(): value does not exist." << std::endl;
-        delete entry;
-        status = -1;
-        return 0;
-    }
-    if (readType(flag) == STR)
-        entry->value = readStr(file);
-    else if (readType(flag) == INT)
-        entry->value = readInt(file);
-    else if (readType(flag) == LIST)
-        entry->value = readList(file);
-    else if (readType(flag) == DICT)
-        entry->value = readDict(file);
-    else{
-        std::cout << "readDictEntry(): value does not exist or unkown." << std::endl;
-        delete entry;
-        status = -1;
-        return 0;
-    }
-    return entry;
-}
-
 Bdict *readDict(std::ifstream &file)
 {
     char flag;
-    int status;
-    de_t *entry;
+    std::string key;
+    Bnode *value;
     Bdict *node;
 
     node = new Bdict();
-    status = 0;
+    
     while (true) {
-        entry = readDictEntry(file, status);
-        if (entry)
-            node->getDict().push_back(entry);
-        else if (status < 0) {
+        if (!file.get(flag)) {
+            std::cout << "readDict(): read file fail." << std::endl;
             delete node;
             return 0;
-        } else
-            break;
+        }
+        // read key
+        if (readType(flag) == END)
+            return node;
+        else if (readType(flag) == STR) {
+            if(readStr(file, key) < 0) {
+                std::cout << "readDict(): read key fail." << std::endl;
+                delete node;
+                return 0;
+            }
+        }
+        else{
+            std::cout << "readDict(): key must be string." << std::endl;
+            delete node;
+            return 0;
+        }
+        // read value
+        if (!file.get(flag)) {
+            std::cout << "readDict(): value does not exist." << std::endl;
+            delete node;
+            return 0;
+        }
+        if (readType(flag) == STR)
+            value = readStr(file);
+        else if (readType(flag) == INT)
+            value = readInt(file);
+        else if (readType(flag) == LIST)
+            value = readList(file);
+        else if (readType(flag) == DICT)
+            value = readDict(file);
+        else{
+            std::cout << "readDict(): value does not exist or unkown." << std::endl;
+            delete node;
+            return 0;
+        }
+        if (!node->getDict().insert(dict_t::value_type(key, value)).second) {
+            std::cout << "readDict(): insert key exists." << std::endl;
+            delete node;
+            return 0;
+        }
     }
     return node;
 }
@@ -296,10 +266,11 @@ int readStr(std::ifstream &file, std::string &str)
         if (c >= '0' && c <= '9')
             len = 10 * len + c - '0';
         else if (c == ':') {
+            str.clear();
             while (len) {
                 l = len < BUFFER_SIZE ? len : BUFFER_SIZE;
                 if (!file.read(buffer, l)) {
-                    std::cout << "readStr: read file error." << std::endl;
+                    std::cout << "readStr(): read file error." << std::endl;
                     return 0;
                 }
                 str.append(buffer, l);
